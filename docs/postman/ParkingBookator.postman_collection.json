@@ -1,0 +1,338 @@
+{
+  "info": {
+    "name": "Parking Bookator API",
+    "_postman_id": "1f84f4d1-5dca-4ad2-81c3-4b79eb7ce101",
+    "description": "Kolekce endpointu pro provoz Parking Bookator.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Status",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/status",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "status"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Poslední změny",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/events?limit=15",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "events"
+          ],
+          "query": [
+            {
+              "key": "limit",
+              "value": "15"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Přijel jsem (decrement)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"latitude\": {{latitude}},\n  \"longitude\": {{longitude}},\n  \"accuracy\": 15\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/decrement",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "decrement"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Odjel jsem (increment)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"latitude\": {{latitude}},\n  \"longitude\": {{longitude}},\n  \"accuracy\": 15\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/increment",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "increment"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Ruční nastavení (admin + heslo)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"free_spots\": 12,\n  \"password\": \"{{manualPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/set-free?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "set-free"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Noční reset (cron GET)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/night-reset?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "night-reset"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Init / reseed (admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"capacity_total\": 20,\n  \"free_spots\": 20,\n  \"manual_password\": \"{{manualPassword}}\"\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/init-or-reseed?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "init-or-reseed"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Migrate (admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"seed\": false\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/database-migrate?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "database-migrate"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        },
+        "description": "Spustí migrate --force. \"seed\": true přidá --seed."
+      }
+    },
+    {
+      "name": "Migrate status (admin)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/database-migrate-status?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "database-migrate-status"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Migrate rollback (admin)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"step\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/database-migrate-rollback?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "database-migrate-rollback"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Clear caches (admin)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/admin/cache?token={{adminToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "admin",
+            "cache"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{adminToken}}"
+            }
+          ]
+        },
+        "description": "cache:clear, config:clear, view:clear, route:clear."
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "https://parking.example.cz"
+    },
+    {
+      "key": "adminToken",
+      "value": "change-this-token"
+    },
+    {
+      "key": "manualPassword",
+      "value": "change-me"
+    },
+    {
+      "key": "deviceId",
+      "value": "postman-device-1"
+    },
+    {
+      "key": "userName",
+      "value": "Test User"
+    },
+    {
+      "key": "latitude",
+      "value": "50.087451"
+    },
+    {
+      "key": "longitude",
+      "value": "14.420671"
+    }
+  ]
+}
