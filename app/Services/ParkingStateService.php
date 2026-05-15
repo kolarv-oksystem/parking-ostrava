@@ -4,22 +4,33 @@ namespace App\Services;
 
 use App\Models\DevicePresence;
 use App\Models\ParkingEvent;
+use App\Models\ParkingSpot;
 use App\Models\ParkingState;
 use Carbon\Carbon;
 use DomainException;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class ParkingStateService
 {
+    private const MAX_SPOTS = 6;
+
     public function getStatus(?string $deviceId = null): array
     {
         $state = $this->ensureState();
-        $payload = $this->statusPayload($state);
+        $spots = $this->ensureSpots((int) $state->capacity_total);
+        $payload = $this->statusPayload($state, $spots);
 
         if ($deviceId !== null && $deviceId !== '') {
-            $presence = DevicePresence::query()->find($deviceId);
-            $payload['device_is_parked'] = (bool) ($presence && $presence->is_parked);
+            /** @var ParkingSpot|null $deviceSpot */
+            $deviceSpot = $spots->first(function (ParkingSpot $spot) use ($deviceId) {
+                return $spot->is_occupied && $spot->occupied_by_device_id === $deviceId;
+            });
+            $payload['device_is_parked'] = $spots->contains(function (ParkingSpot $spot) use ($deviceId) {
+                return $spot->is_occupied && $spot->occupied_by_device_id === $deviceId;
+            });
+            $payload['device_spot_number'] = $deviceSpot ? (int) $deviceSpot->spot_number : null;
         }
 
         return $payload;
@@ -27,7 +38,7 @@ class ParkingStateService
 
     public function recentEvents(int $limit = 15): array
     {
-        $resolvedLimit = max(1, min(50, $limit));
+        $resolvedLimit = max(1, min(100, $limit));
 
         return ParkingEvent::query()
             ->orderByDesc('created_at')
@@ -43,6 +54,9 @@ class ParkingStateService
                 'actor',
                 'user_name',
                 'device_id',
+                'spot_number',
+                'is_reserved_service',
+                'vehicle_type',
             ])
             ->map(function (ParkingEvent $event) {
                 return [
@@ -57,83 +71,186 @@ class ParkingStateService
                     'actor' => $event->actor,
                     'user_name' => $event->user_name,
                     'device_id' => $event->device_id,
+                    'spot_number' => $event->spot_number ? (int) $event->spot_number : null,
+                    'is_reserved_service' => (bool) $event->is_reserved_service,
+                    'vehicle_type' => $event->vehicle_type,
                 ];
             })
             ->values()
             ->all();
     }
 
-    public function arrive(
+    public function toggleSpotOccupancy(
         string $deviceId,
         string $userName,
-        float $latitude,
-        float $longitude,
-        string $actor = 'public'
-    ): array
-    {
-        return DB::transaction(function () use ($deviceId, $userName, $latitude, $longitude, $actor) {
+        int $spotNumber,
+        ?float $latitude,
+        ?float $longitude,
+        string $actor = 'public',
+        ?string $vehicleType = null
+    ): array {
+        return DB::transaction(function () use ($deviceId, $userName, $spotNumber, $latitude, $longitude, $actor, $vehicleType) {
             $state = ParkingState::query()->lockForUpdate()->findOrFail(1);
-            $this->assertWithinAllowedArea($latitude, $longitude);
+            $this->ensureSpots((int) $state->capacity_total);
+            $oldValue = (int) $state->free_spots;
+            $reservedServiceCount = $this->resolvedReservedServiceSpotsCount((int) $state->capacity_total);
 
-            if ($state->free_spots <= 0) {
-                throw new DomainException('Žádné volné místo není k dispozici.');
+            /** @var ParkingSpot|null $spot */
+            $spot = ParkingSpot::query()
+                ->where('spot_number', $spotNumber)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$spot) {
+                throw new DomainException('Vybrané místo neexistuje.');
             }
 
-            $oldValue = $state->free_spots;
-            $newValue = $oldValue - 1;
+            $previousDeviceId = null;
+            $vehicleTypeForEvent = null;
 
-            $state->free_spots = $newValue;
+            if ($spot->is_occupied) {
+                $vehicleTypeForEvent = (bool) $spot->is_reserved_service ? 'service' : 'private';
+                $previousDeviceId = $spot->occupied_by_device_id;
+                $spot->is_occupied = false;
+                $spot->occupied_by_name = null;
+                $spot->occupied_by_device_id = null;
+                $spot->occupied_at = null;
+                $spot->save();
+
+                $action = 'spot_leave';
+                $delta = 1;
+            } else {
+                $inServiceZone = $spotNumber <= $reservedServiceCount;
+                if ($inServiceZone) {
+                    $effectiveType = $vehicleType === 'service' ? 'service' : 'private';
+                    $vehicleTypeForEvent = $effectiveType;
+                    if ($effectiveType === 'service') {
+                        $spot->is_reserved_service = true;
+                        $spot->save();
+                    } else {
+                        $spot->is_reserved_service = false;
+                        $spot->save();
+                        $this->assertCoordinatesProvided($latitude, $longitude);
+                        $this->assertWithinAllowedArea((float) $latitude, (float) $longitude);
+                    }
+                } else {
+                    $vehicleTypeForEvent = 'private';
+                    $this->assertCoordinatesProvided($latitude, $longitude);
+                    $this->assertWithinAllowedArea((float) $latitude, (float) $longitude);
+                }
+
+                $spot->is_occupied = true;
+                $spot->occupied_by_name = $userName;
+                $spot->occupied_by_device_id = $deviceId;
+                $spot->occupied_at = Carbon::now();
+                $spot->save();
+
+                $action = 'spot_arrive';
+                $delta = -1;
+            }
+
+            $updatedSpots = ParkingSpot::query()->orderBy('spot_number')->get();
+            $freeSpots = $this->countFreeSpots($updatedSpots);
+
+            $state->free_spots = $freeSpots;
             $state->updated_by = $userName;
             $state->version = $state->version + 1;
             $state->save();
 
+            if ($previousDeviceId) {
+                DevicePresence::query()->updateOrCreate(
+                    ['device_id' => $previousDeviceId],
+                    [
+                        'is_parked' => false,
+                        'blocks_untracked_leave_until_arrive' => false,
+                        'last_action_at' => Carbon::now(),
+                    ]
+                );
+            }
+
             DevicePresence::query()->updateOrCreate(
                 ['device_id' => $deviceId],
                 [
-                    'is_parked' => true,
+                    'is_parked' => $updatedSpots->contains(function (ParkingSpot $row) use ($deviceId) {
+                        return $row->is_occupied && $row->occupied_by_device_id === $deviceId;
+                    }),
                     'blocks_untracked_leave_until_arrive' => false,
                     'last_action_at' => Carbon::now(),
                 ]
             );
 
-            $this->logEvent('arrive', -1, $oldValue, $newValue, $actor, $deviceId, $userName);
+            $this->logEvent(
+                $action,
+                $delta,
+                $oldValue,
+                $freeSpots,
+                $actor,
+                $deviceId,
+                $userName,
+                (int) $spot->spot_number,
+                (bool) $spot->is_reserved_service,
+                $vehicleTypeForEvent
+            );
 
-            return $this->statusPayload($state);
+            return $this->statusPayload($state, $updatedSpots);
         });
     }
 
-    public function leave(
+    public function toggleServiceReservation(
         string $deviceId,
         string $userName,
-        float $latitude,
-        float $longitude,
+        int $spotNumber,
         string $actor = 'public'
-    ): array
-    {
-        return DB::transaction(function () use ($deviceId, $userName, $latitude, $longitude, $actor) {
+    ): array {
+        return DB::transaction(function () use ($deviceId, $userName, $spotNumber, $actor) {
             $state = ParkingState::query()->lockForUpdate()->findOrFail(1);
-            $this->assertWithinAllowedArea($latitude, $longitude);
+            $this->ensureSpots((int) $state->capacity_total);
+            $oldValue = (int) $state->free_spots;
 
-            $oldValue = $state->free_spots;
-            $newValue = min($state->capacity_total, $oldValue + 1);
+            $reservedCount = $this->resolvedReservedServiceSpotsCount((int) $state->capacity_total);
+            if ($spotNumber < 1 || $spotNumber > $reservedCount) {
+                throw new DomainException('Služební rezervaci lze měnit jen na vyhrazených místech.');
+            }
 
-            $state->free_spots = $newValue;
+            /** @var ParkingSpot|null $spot */
+            $spot = ParkingSpot::query()
+                ->where('spot_number', $spotNumber)
+                ->lockForUpdate()
+                ->first();
+
+            if (!$spot) {
+                throw new DomainException('Vybrané místo neexistuje.');
+            }
+
+            if ($spot->is_occupied && !$spot->is_reserved_service) {
+                throw new DomainException('Obsazené osobní místo nelze označit jako služební rezervaci.');
+            }
+
+            $spot->is_reserved_service = !$spot->is_reserved_service;
+            $spot->save();
+
+            $spots = ParkingSpot::query()->orderBy('spot_number')->get();
+            $freeSpots = $this->countFreeSpots($spots);
+
+            $state->free_spots = $freeSpots;
             $state->updated_by = $userName;
             $state->version = $state->version + 1;
             $state->save();
 
-            DevicePresence::query()->updateOrCreate(
-                ['device_id' => $deviceId],
-                [
-                    'is_parked' => false,
-                    'blocks_untracked_leave_until_arrive' => false,
-                    'last_action_at' => Carbon::now(),
-                ]
+            $this->logEvent(
+                $spot->is_reserved_service ? 'service_reserve_on' : 'service_reserve_off',
+                0,
+                $oldValue,
+                $freeSpots,
+                $actor,
+                $deviceId,
+                $userName,
+                (int) $spot->spot_number,
+                (bool) $spot->is_reserved_service,
+                null
             );
 
-            $this->logEvent('leave', 1, $oldValue, $newValue, $actor, $deviceId, $userName);
-
-            return $this->statusPayload($state);
+            return $this->statusPayload($state, $spots);
         });
     }
 
@@ -141,6 +258,7 @@ class ParkingStateService
     {
         return DB::transaction(function () use ($freeSpots, $password, $actor) {
             $state = ParkingState::query()->lockForUpdate()->findOrFail(1);
+            $this->ensureSpots((int) $state->capacity_total);
 
             if (!Hash::check($password, $state->manual_update_password_hash)) {
                 throw new DomainException('Neplatné heslo pro ruční úpravu.');
@@ -150,38 +268,29 @@ class ParkingStateService
                 throw new DomainException('Počet volných míst je mimo povolený rozsah.');
             }
 
-            $oldValue = $state->free_spots;
-            $state->free_spots = $freeSpots;
-            $state->updated_by = $actor;
-            $state->version = $state->version + 1;
-            $state->save();
+            $spots = ParkingSpot::query()->orderBy('spot_number')->lockForUpdate()->get();
+            $targetOccupied = (int) $state->capacity_total - $freeSpots;
+            $currentOccupied = $spots->where('is_occupied', true)->count();
 
-            $this->logEvent(
-                'set_manual',
-                $freeSpots - $oldValue,
-                $oldValue,
-                $freeSpots,
-                $actor,
-                null,
-                null
-            );
-
-            return $this->statusPayload($state);
-        });
-    }
-
-    public function nightReset(string $actor = 'cron'): array
-    {
-        return DB::transaction(function () use ($actor) {
-            $state = ParkingState::query()->lockForUpdate()->findOrFail(1);
-
-            $oldValue = $state->free_spots;
-            $newValue = $state->capacity_total;
-
-            $state->free_spots = $newValue;
-            $state->updated_by = $actor;
-            $state->version = $state->version + 1;
-            $state->save();
+            if ($targetOccupied > $currentOccupied) {
+                $toOccupy = $targetOccupied - $currentOccupied;
+                $spots->where('is_occupied', false)->take($toOccupy)->each(function (ParkingSpot $spot) {
+                    $spot->is_occupied = true;
+                    $spot->occupied_by_name = null;
+                    $spot->occupied_by_device_id = null;
+                    $spot->occupied_at = Carbon::now();
+                    $spot->save();
+                });
+            } elseif ($targetOccupied < $currentOccupied) {
+                $toRelease = $currentOccupied - $targetOccupied;
+                $spots->where('is_occupied', true)->sortByDesc('spot_number')->take($toRelease)->each(function (ParkingSpot $spot) {
+                    $spot->is_occupied = false;
+                    $spot->occupied_by_name = null;
+                    $spot->occupied_by_device_id = null;
+                    $spot->occupied_at = null;
+                    $spot->save();
+                });
+            }
 
             DevicePresence::query()->update([
                 'is_parked' => false,
@@ -189,24 +298,36 @@ class ParkingStateService
                 'last_action_at' => Carbon::now(),
             ]);
 
+            $updatedSpots = ParkingSpot::query()->orderBy('spot_number')->get();
+            $oldValue = (int) $state->free_spots;
+            $newValue = $this->countFreeSpots($updatedSpots);
+
+            $state->free_spots = $newValue;
+            $state->updated_by = $actor;
+            $state->version = $state->version + 1;
+            $state->save();
+
             $this->logEvent(
-                'reset_nightly',
+                'set_manual',
                 $newValue - $oldValue,
                 $oldValue,
                 $newValue,
                 $actor,
                 null,
+                null,
+                null,
+                false,
                 null
             );
 
-            return $this->statusPayload($state);
+            return $this->statusPayload($state, $updatedSpots);
         });
     }
 
     public function initOrReseed(int $capacityTotal, string $manualPassword, ?int $freeSpots, string $actor = 'admin'): array
     {
         return DB::transaction(function () use ($capacityTotal, $manualPassword, $freeSpots, $actor) {
-            $capacityTotal = max(1, $capacityTotal);
+            $capacityTotal = $this->resolvedCapacity($capacityTotal);
             $resolvedFreeSpots = is_null($freeSpots) ? $capacityTotal : $freeSpots;
 
             if ($resolvedFreeSpots < 0 || $resolvedFreeSpots > $capacityTotal) {
@@ -214,7 +335,7 @@ class ParkingStateService
             }
 
             $state = ParkingState::query()->lockForUpdate()->find(1);
-            $oldValue = $state ? $state->free_spots : $capacityTotal;
+            $oldValue = $state ? (int) $state->free_spots : $capacityTotal;
 
             if (!$state) {
                 $state = new ParkingState();
@@ -223,11 +344,27 @@ class ParkingStateService
             }
 
             $state->capacity_total = $capacityTotal;
-            $state->free_spots = $resolvedFreeSpots;
             $state->updated_by = $actor;
             $state->version = $state->version + 1;
             $state->manual_update_password_hash = Hash::make($manualPassword);
             $state->save();
+
+            $spots = $this->ensureSpots($capacityTotal);
+            $targetOccupied = $capacityTotal - $resolvedFreeSpots;
+            $occupiedCounter = 0;
+
+            $spots->sortBy('spot_number')->values()->each(function (ParkingSpot $spot) use ($targetOccupied, &$occupiedCounter) {
+                $shouldBeOccupied = $occupiedCounter < $targetOccupied;
+                if ($shouldBeOccupied) {
+                    $occupiedCounter++;
+                }
+
+                $spot->is_occupied = $shouldBeOccupied;
+                $spot->occupied_by_name = null;
+                $spot->occupied_by_device_id = null;
+                $spot->occupied_at = $shouldBeOccupied ? Carbon::now() : null;
+                $spot->save();
+            });
 
             DevicePresence::query()->update([
                 'is_parked' => false,
@@ -235,17 +372,25 @@ class ParkingStateService
                 'last_action_at' => Carbon::now(),
             ]);
 
+            $updatedSpots = ParkingSpot::query()->orderBy('spot_number')->get();
+            $newValue = $this->countFreeSpots($updatedSpots);
+            $state->free_spots = $newValue;
+            $state->save();
+
             $this->logEvent(
                 'set_manual',
-                $resolvedFreeSpots - $oldValue,
+                $newValue - $oldValue,
                 $oldValue,
-                $resolvedFreeSpots,
+                $newValue,
                 $actor,
                 null,
+                null,
+                null,
+                false,
                 null
             );
 
-            return $this->statusPayload($state);
+            return $this->statusPayload($state, $updatedSpots);
         });
     }
 
@@ -256,10 +401,10 @@ class ParkingStateService
             return $state;
         }
 
-        $capacity = max(1, (int) config('parking.capacity', 20));
+        $capacity = $this->resolvedCapacity((int) config('parking.capacity', 6));
         $password = (string) config('parking.manual_password', 'change-me');
 
-        return ParkingState::query()->create([
+        $state = ParkingState::query()->create([
             'id' => 1,
             'capacity_total' => $capacity,
             'free_spots' => $capacity,
@@ -267,6 +412,79 @@ class ParkingStateService
             'version' => 1,
             'manual_update_password_hash' => Hash::make($password),
         ]);
+
+        $this->ensureSpots($capacity);
+
+        return $state;
+    }
+
+    private function ensureSpots(int $capacityTotal): Collection
+    {
+        $capacityTotal = $this->resolvedCapacity($capacityTotal);
+        $reservedCount = $this->resolvedReservedServiceSpotsCount($capacityTotal);
+        $now = Carbon::now();
+
+        /** @var Collection<int, ParkingSpot> $existing */
+        $existing = ParkingSpot::query()
+            ->orderBy('spot_number')
+            ->get()
+            ->keyBy('spot_number');
+
+        for ($spotNumber = 1; $spotNumber <= $capacityTotal; $spotNumber++) {
+            /** @var ParkingSpot|null $spot */
+            $spot = $existing->get($spotNumber);
+            if (!$spot) {
+                $spot = ParkingSpot::query()->create([
+                    'spot_number' => $spotNumber,
+                    'is_occupied' => false,
+                    'occupied_by_name' => null,
+                    'occupied_by_device_id' => null,
+                    'occupied_at' => null,
+                    'is_reserved_service' => $spotNumber <= $reservedCount,
+                ]);
+                $existing->put($spotNumber, $spot);
+                continue;
+            }
+
+            if ($spotNumber > $reservedCount && (bool) $spot->is_reserved_service) {
+                $spot->is_reserved_service = false;
+                $spot->updated_at = $now;
+                $spot->save();
+            }
+        }
+
+        if ($existing->count() > $capacityTotal) {
+            ParkingSpot::query()->where('spot_number', '>', $capacityTotal)->delete();
+        }
+
+        return ParkingSpot::query()->orderBy('spot_number')->get();
+    }
+
+    private function resolvedReservedServiceSpotsCount(int $capacityTotal): int
+    {
+        $configured = (int) config('parking.reserved_service_spots_count', 1);
+        if ($configured < 0) {
+            return 0;
+        }
+
+        return min($capacityTotal, $configured);
+    }
+
+    private function resolvedCapacity(int $capacity): int
+    {
+        return min(self::MAX_SPOTS, max(1, $capacity));
+    }
+
+    private function countFreeSpots(Collection $spots): int
+    {
+        return $spots->where('is_occupied', false)->count();
+    }
+
+    private function assertCoordinatesProvided(?float $latitude, ?float $longitude): void
+    {
+        if ($latitude === null || $longitude === null) {
+            throw new DomainException('Pro tuto akci je nutné ověření GPS polohy.');
+        }
     }
 
     private function logEvent(
@@ -276,7 +494,10 @@ class ParkingStateService
         int $newValue,
         ?string $actor,
         ?string $deviceId,
-        ?string $userName
+        ?string $userName,
+        ?int $spotNumber,
+        bool $isReservedService,
+        ?string $vehicleType
     ): void {
         ParkingEvent::query()->create([
             'action' => $action,
@@ -287,6 +508,9 @@ class ParkingStateService
             'actor' => $actor,
             'user_name' => $userName,
             'device_id' => $deviceId,
+            'spot_number' => $spotNumber,
+            'is_reserved_service' => $isReservedService,
+            'vehicle_type' => $vehicleType,
         ]);
     }
 
@@ -341,14 +565,33 @@ class ParkingStateService
         return $earthRadius * $c;
     }
 
-    private function statusPayload(ParkingState $state): array
+    private function statusPayload(ParkingState $state, Collection $spots): array
     {
+        $freeSpots = $this->countFreeSpots($spots);
+        $capacity = $spots->count() ?: (int) $state->capacity_total;
+
+        if ((int) $state->capacity_total !== $capacity || (int) $state->free_spots !== $freeSpots) {
+            $state->capacity_total = $capacity;
+            $state->free_spots = $freeSpots;
+            $state->save();
+        }
+
         return [
-            'capacity_total' => (int) $state->capacity_total,
-            'free_spots' => (int) $state->free_spots,
+            'capacity_total' => $capacity,
+            'free_spots' => $freeSpots,
             'updated_at' => optional($state->updated_at)->toIso8601String(),
             'updated_by' => $state->updated_by,
             'version' => (int) $state->version,
+            'reserved_service_spots_count' => $this->resolvedReservedServiceSpotsCount($capacity),
+            'spots' => $spots->map(function (ParkingSpot $spot) {
+                return [
+                    'spot_number' => (int) $spot->spot_number,
+                    'is_occupied' => (bool) $spot->is_occupied,
+                    'occupied_by_name' => $spot->occupied_by_name,
+                    'is_reserved_service' => (bool) $spot->is_reserved_service,
+                    'occupied_at' => $spot->occupied_at ? $spot->occupied_at->toIso8601String() : null,
+                ];
+            })->values()->all(),
         ];
     }
 }

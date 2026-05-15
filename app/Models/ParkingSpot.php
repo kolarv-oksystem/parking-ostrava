@@ -5,27 +5,22 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
-class ParkingEvent extends Model
+class ParkingSpot extends Model
 {
     use HasFactory;
 
-    public $timestamps = false;
-
     protected $fillable = [
-        'action',
-        'delta',
-        'old_value',
-        'new_value',
-        'created_at',
-        'actor',
-        'user_name',
-        'device_id',
         'spot_number',
+        'is_occupied',
+        'occupied_by_name',
+        'occupied_by_device_id',
+        'occupied_at',
         'is_reserved_service',
-        'vehicle_type',
     ];
 
     protected $casts = [
+        'is_occupied' => 'boolean',
         'is_reserved_service' => 'boolean',
+        'occupied_at' => 'datetime',
     ];
 }

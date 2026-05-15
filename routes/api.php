@@ -17,11 +17,10 @@ use Illuminate\Support\Facades\Route;
 
 Route::get('/status', [ParkingStateController::class, 'status']);
 Route::get('/events', [ParkingStateController::class, 'events']);
-Route::post('/decrement', [ParkingStateController::class, 'decrement']);
-Route::post('/increment', [ParkingStateController::class, 'increment']);
+Route::post('/spots/toggle', [ParkingStateController::class, 'toggleSpot']);
+Route::post('/spots/toggle-service-reservation', [ParkingStateController::class, 'toggleServiceReservation']);
 
 Route::middleware('admin.token')->group(function () {
-    Route::get('/admin/night-reset', [ParkingStateController::class, 'nightReset']);
     Route::post('/admin/init-or-reseed', [ParkingStateController::class, 'initOrReseed']);
     Route::post('/admin/set-free', [ParkingStateController::class, 'setFree']);
 

@@ -3,9 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Exceptions\ParkingApiException;
-use App\Http\Requests\DeviceActionRequest;
 use App\Http\Requests\InitParkingRequest;
 use App\Http\Requests\SetFreeRequest;
+use App\Http\Requests\ToggleServiceReservationRequest;
+use App\Http\Requests\ToggleSpotRequest;
 use App\Services\ParkingStateService;
 use DomainException;
 use Illuminate\Http\JsonResponse;
@@ -31,27 +32,30 @@ class ParkingStateController extends Controller
         ));
     }
 
-    public function decrement(DeviceActionRequest $request): JsonResponse
+    public function toggleSpot(ToggleSpotRequest $request): JsonResponse
     {
         return $this->runAction(function () use ($request) {
-            return $this->parkingStateService->arrive(
+            $vehicleType = $request->input('vehicle_type');
+
+            return $this->parkingStateService->toggleSpotOccupancy(
                 $request->input('device_id'),
                 $request->input('name'),
-                (float) $request->input('latitude'),
-                (float) $request->input('longitude'),
-                'public'
+                (int) $request->input('spot_number'),
+                $request->filled('latitude') ? (float) $request->input('latitude') : null,
+                $request->filled('longitude') ? (float) $request->input('longitude') : null,
+                'public',
+                is_string($vehicleType) ? $vehicleType : null
             );
         });
     }
 
-    public function increment(DeviceActionRequest $request): JsonResponse
+    public function toggleServiceReservation(ToggleServiceReservationRequest $request): JsonResponse
     {
         return $this->runAction(function () use ($request) {
-            return $this->parkingStateService->leave(
+            return $this->parkingStateService->toggleServiceReservation(
                 $request->input('device_id'),
                 $request->input('name'),
-                (float) $request->input('latitude'),
-                (float) $request->input('longitude'),
+                (int) $request->input('spot_number'),
                 'public'
             );
         });
@@ -74,18 +78,6 @@ class ParkingStateController extends Controller
                 $request->input('password'),
                 'manual'
             );
-        });
-    }
-
-    public function nightReset(Request $request): JsonResponse
-    {
-        return $this->runAction(function () use ($request) {
-            $actor = 'cron';
-            if ($request->header('User-Agent')) {
-                $actor = 'cron:' . substr($request->header('User-Agent'), 0, 40);
-            }
-
-            return $this->parkingStateService->nightReset($actor);
         });
     }
 

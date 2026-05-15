@@ -47,7 +47,7 @@
       }
     },
     {
-      "name": "Přijel jsem (decrement)",
+      "name": "Toggle spot (služební vozidlo, bez GPS)",
       "request": {
         "method": "POST",
         "header": [
@@ -58,22 +58,23 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"latitude\": {{latitude}},\n  \"longitude\": {{longitude}},\n  \"accuracy\": 15\n}"
+          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"spot_number\": 1,\n  \"vehicle_type\": \"service\"\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/decrement",
+          "raw": "{{baseUrl}}/api/spots/toggle",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "decrement"
+            "spots",
+            "toggle"
           ]
         }
       }
     },
     {
-      "name": "Odjel jsem (increment)",
+      "name": "Toggle spot (místo 2 + GPS)",
       "request": {
         "method": "POST",
         "header": [
@@ -84,16 +85,44 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"latitude\": {{latitude}},\n  \"longitude\": {{longitude}},\n  \"accuracy\": 15\n}"
+          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"spot_number\": 2,\n  \"latitude\": {{latitude}},\n  \"longitude\": {{longitude}},\n  \"accuracy\": 15\n}"
         },
         "url": {
-          "raw": "{{baseUrl}}/api/increment",
+          "raw": "{{baseUrl}}/api/spots/toggle",
           "host": [
             "{{baseUrl}}"
           ],
           "path": [
             "api",
-            "increment"
+            "spots",
+            "toggle"
+          ]
+        }
+      }
+    },
+    {
+      "name": "Toggle service reservation",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"device_id\": \"{{deviceId}}\",\n  \"name\": \"{{userName}}\",\n  \"spot_number\": 1\n}"
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/spots/toggle-service-reservation",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "spots",
+            "toggle-service-reservation"
           ]
         }
       }
@@ -132,30 +161,6 @@
       }
     },
     {
-      "name": "Noční reset (cron GET)",
-      "request": {
-        "method": "GET",
-        "header": [],
-        "url": {
-          "raw": "{{baseUrl}}/api/admin/night-reset?token={{adminToken}}",
-          "host": [
-            "{{baseUrl}}"
-          ],
-          "path": [
-            "api",
-            "admin",
-            "night-reset"
-          ],
-          "query": [
-            {
-              "key": "token",
-              "value": "{{adminToken}}"
-            }
-          ]
-        }
-      }
-    },
-    {
       "name": "Init / reseed (admin)",
       "request": {
         "method": "POST",
@@ -167,7 +172,7 @@
         ],
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"capacity_total\": 20,\n  \"free_spots\": 20,\n  \"manual_password\": \"{{manualPassword}}\"\n}"
+          "raw": "{\n  \"capacity_total\": 6,\n  \"free_spots\": 6,\n  \"manual_password\": \"{{manualPassword}}\"\n}"
         },
         "url": {
           "raw": "{{baseUrl}}/api/admin/init-or-reseed?token={{adminToken}}",

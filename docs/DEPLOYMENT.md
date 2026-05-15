@@ -3,7 +3,7 @@
 Tento projekt je připraven pro hosting, kde:
 
 - nelze pravidelně spouštět Laravel Artisan příkazy
-- cron umí pouze volání URL endpointu
+- provozní úkony se řeší přes zabezpečené admin endpointy
 
 ## 1) Přednasazení (lokálně/CI)
 
@@ -24,24 +24,17 @@ Tyto kroky proveďte mimo produkční runtime:
    - `APP_TIMEZONE=Europe/Prague`
    - `DB_*`
    - `PARKING_CAPACITY`
+   - `PARKING_RESERVED_SERVICE_SPOTS_COUNT`
    - `PARKING_MANUAL_PASSWORD`
    - `PARKING_ADMIN_TOKEN`
 
-## 3) Cron reset přes GET URL
-
-V administraci hostingu nastavte denní cron, který zavolá:
-
-`https://<subdomena>/api/admin/night-reset?token=<PARKING_ADMIN_TOKEN>`
-
-Doporučený čas: po půlnoci (např. 00:05).
-
-## 4) Provozní úkony přes Postman
+## 3) Provozní úkony přes Postman
 
 Postman kolekce: `docs/postman/ParkingBookator.postman_collection.json`
 
 Používejte hlavně:
-- `Noční reset (cron GET)` pro ruční test resetu
 - `Init / reseed (admin)` při změně kapacity nebo resetu hesla ruční úpravy
+- `Toggle spot occupancy` a `Toggle service reservation` pro API testy mapy míst
 
 ## Bezpečnostní doporučení
 

@@ -1,17 +1,20 @@
 # Parking Bookator
 
-Jednoduchá webová aplikace pro sdílenou správu volných parkovacích míst.
+Jednoduchá webová aplikace pro sdílenou správu 6 parkovacích míst.
 
 ## Co aplikace umí
 
-- zobrazuje aktuální počet volných míst (`/`)
-- veřejné akce po jednom místě:
-  - `Přijel jsem` (`POST /api/decrement`)
-  - `Odjel jsem` (`POST /api/increment`)
-- každá veřejná změna vyžaduje jméno + GPS polohu v povoleném okruhu
+- zobrazuje mapu 6 míst (`/`) a stav obsazení po jednotlivých místech
+- kliknutím na služební místo (žlutý rámeček) se otevře volba **služební / soukromé vozidlo** a poté se obsadí (`POST /api/spots/toggle` s `vehicle_type`)
+- kliknutím na ostatní místa se obsadí po potvrzení (vždy s GPS v areálu)
+- obsazené místo nese jméno řidiče
+- volitelné API pro přepnutí jen příznaku rezervace: `POST /api/spots/toggle-service-reservation` (např. skripty)
+- GPS pravidla:
+  - ve služební zóně: `vehicle_type: "service"` = obsazení bez GPS a zapnutá služební rezervace
+  - ve služební zóně: `vehicle_type: "private"` = obsazení s GPS, rezervace se vypne
+  - mimo služební zónu: obsazení vždy s GPS
 - zobrazuje posledních 15 změn (`GET /api/events?limit=15`)
 - servisní ruční korekce stavu je dostupná jen s admin tokenem (`POST /api/admin/set-free`)
-- noční reset přes hosting cron volající URL (`GET /api/admin/night-reset`)
 - servisní init/reseed endpoint přes token (`POST /api/admin/init-or-reseed`)
 - migrace a údržba DB přes token (`POST /api/admin/database-migrate` a související)
 
@@ -33,7 +36,8 @@ DB_DATABASE=parking_bookator
 DB_USERNAME=...
 DB_PASSWORD=...
 
-PARKING_CAPACITY=20
+PARKING_CAPACITY=6
+PARKING_RESERVED_SERVICE_SPOTS_COUNT=1
 PARKING_MANUAL_PASSWORD=change-me
 PARKING_ADMIN_TOKEN=change-this-token
 PARKING_ALLOWED_LAT=50.087451
@@ -57,17 +61,16 @@ PARKING_ALLOWED_RADIUS_METERS=250
 
 1. Nahrát aplikaci, `document root` subdomény směrovat na `public/`
 2. V produkci nastavit `.env` včetně `PARKING_ADMIN_TOKEN`
-3. Vytvořit cron v administraci hostingu, který denně volá:
-   - `GET https://<subdomena>/api/admin/night-reset?token=<PARKING_ADMIN_TOKEN>`
-4. Pro servisní zásahy používat Postman kolekci v `docs/postman/ParkingBookator.postman_collection.json`
+3. Pro servisní zásahy používat Postman kolekci v `docs/postman/ParkingBookator.postman_collection.json`
 
 ## API přehled
 
 - `GET /api/status`
 - `GET /api/events?limit=15`
-- `POST /api/decrement` body: `{ "device_id": "...", "name": "...", "latitude": 50.08, "longitude": 14.42, "accuracy": 12.3 }`
-- `POST /api/increment` body: `{ "device_id": "...", "name": "...", "latitude": 50.08, "longitude": 14.42, "accuracy": 12.3 }`
-- `GET /api/admin/night-reset?token=...`
+- `POST /api/spots/toggle` body příklad služební zóna bez GPS: `{ "device_id", "name", "spot_number": 1, "vehicle_type": "service" }`
+- `POST /api/spots/toggle` body příklad soukromě ve služební zóně: `{ ..., "spot_number": 1, "vehicle_type": "private", "latitude", "longitude", "accuracy" }`
+- `POST /api/spots/toggle` body ostatní místa: `{ ..., "spot_number": 2, "latitude", "longitude", "accuracy" }`
+- `POST /api/spots/toggle-service-reservation` body: `{ "device_id": "...", "name": "...", "spot_number": 1 }` (volitelné, mimo UI)
 - `POST /api/admin/init-or-reseed?token=...`
 - `POST /api/admin/set-free?token=...` body: `{ "free_spots": 12, "password": "..." }`
 - `POST /api/admin/database-migrate?token=...` (JSON `{ "seed": true }` volitelně – spustí i seedery)

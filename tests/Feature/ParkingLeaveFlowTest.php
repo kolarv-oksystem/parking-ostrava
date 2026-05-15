@@ -12,13 +12,12 @@ class ParkingLeaveFlowTest extends TestCase
     /** @var string */
     private $deviceA = 'dev_test_device_aaa';
 
-    /** @var string */
-    private $deviceB = 'dev_test_device_bbb';
-
     protected function setUp(): void
     {
         parent::setUp();
 
+        config()->set('parking.capacity', 6);
+        config()->set('parking.reserved_service_spots_count', 1);
         config()->set('parking.allowed_lat', 50.087451);
         config()->set('parking.allowed_lng', 14.420671);
         config()->set('parking.allowed_radius_meters', 250);
@@ -29,74 +28,135 @@ class ParkingLeaveFlowTest extends TestCase
         $this->getJson('/api/status?device_id=' . urlencode($this->deviceA));
     }
 
-    private function actionPayload(array $overrides = []): array
+    private function togglePayload(array $overrides = []): array
     {
         return array_merge([
             'device_id' => $this->deviceA,
             'name' => 'Test User',
+            'spot_number' => 2,
             'latitude' => 50.087451,
             'longitude' => 14.420671,
             'accuracy' => 10.5,
         ], $overrides);
     }
 
-    public function test_same_device_can_arrive_multiple_times()
+    public function test_status_contains_spots_and_reserved_first_spot()
     {
         $this->bootstrapParkingState();
-        $before = $this->getJson('/api/status')->json('free_spots');
 
-        $this->postJson('/api/decrement', $this->actionPayload())->assertOk();
-        $this->postJson('/api/decrement', $this->actionPayload())->assertOk();
-
-        $this->assertSame($before - 2, $this->getJson('/api/status')->json('free_spots'));
+        $this->getJson('/api/status')
+            ->assertOk()
+            ->assertJsonPath('capacity_total', 6)
+            ->assertJsonPath('free_spots', 6)
+            ->assertJsonCount(6, 'spots')
+            ->assertJsonPath('spots.0.spot_number', 1)
+            ->assertJsonPath('spots.0.is_reserved_service', true);
     }
 
-    public function test_same_device_can_leave_multiple_times_without_confirm()
+    public function test_spot_toggle_occupy_and_release()
     {
         $this->bootstrapParkingState();
-        $this->postJson('/api/decrement', $this->actionPayload(['device_id' => $this->deviceB]))->assertOk();
 
-        $this->postJson('/api/increment', $this->actionPayload())->assertOk();
-        $this->postJson('/api/increment', $this->actionPayload())->assertOk();
+        $this->postJson('/api/spots/toggle', $this->togglePayload([
+            'spot_number' => 2,
+            'name' => 'Jana',
+        ]))->assertOk()->assertJsonPath('free_spots', 5);
 
-        $this->assertSame(
-            $this->getJson('/api/status')->json('capacity_total'),
-            $this->getJson('/api/status')->json('free_spots')
-        );
+        $this->postJson('/api/spots/toggle', $this->togglePayload([
+            'spot_number' => 2,
+            'name' => 'Jana',
+        ]))->assertOk()->assertJsonPath('free_spots', 6);
     }
 
-    public function test_name_is_required_for_public_actions()
+    public function test_spots_2_to_6_require_gps_for_occupy()
     {
         $this->bootstrapParkingState();
 
-        $this->postJson('/api/decrement', $this->actionPayload(['name' => '']))
-            ->assertStatus(422)
-            ->assertJsonValidationErrors(['name']);
-    }
-
-    public function test_gps_outside_allowed_radius_is_rejected()
-    {
-        $this->bootstrapParkingState();
-
-        $this->postJson('/api/decrement', $this->actionPayload([
-            'latitude' => 50.100000,
-            'longitude' => 14.500000,
-        ]))->assertStatus(422)->assertJsonFragment([
-            'message' => 'Nejste v povolené parkovací zóně.',
+        $this->postJson('/api/spots/toggle', [
+            'device_id' => $this->deviceA,
+            'name' => 'Jana',
+            'spot_number' => 3,
+        ])->assertStatus(422)->assertJsonFragment([
+            'message' => 'Pro tuto akci je nutné ověření GPS polohy.',
         ]);
     }
 
-    public function test_recent_events_endpoint_returns_latest_records_with_user_name()
+    public function test_spot_1_service_vehicle_can_be_occupied_without_gps()
     {
         $this->bootstrapParkingState();
 
-        $this->postJson('/api/decrement', $this->actionPayload(['name' => 'Jana']))->assertOk();
-        $this->postJson('/api/increment', $this->actionPayload(['name' => 'Petr']))->assertOk();
+        $this->postJson('/api/spots/toggle', [
+            'device_id' => $this->deviceA,
+            'name' => 'Jana',
+            'spot_number' => 1,
+            'vehicle_type' => 'service',
+        ])->assertOk()
+            ->assertJsonPath('spots.0.is_occupied', true)
+            ->assertJsonPath('spots.0.occupied_by_name', 'Jana')
+            ->assertJsonPath('spots.0.is_reserved_service', true);
+    }
 
-        $this->getJson('/api/events?limit=2')
+    public function test_spot_1_private_vehicle_requires_gps_when_unspecified()
+    {
+        $this->bootstrapParkingState();
+
+        $this->postJson('/api/spots/toggle', [
+            'device_id' => $this->deviceA,
+            'name' => 'Jana',
+            'spot_number' => 1,
+        ])->assertStatus(422)->assertJsonFragment([
+            'message' => 'Pro tuto akci je nutné ověření GPS polohy.',
+        ]);
+    }
+
+    public function test_spot_1_private_vehicle_can_be_occupied_with_gps()
+    {
+        $this->bootstrapParkingState();
+
+        $this->postJson('/api/spots/toggle', [
+            'device_id' => $this->deviceA,
+            'name' => 'Jana',
+            'spot_number' => 1,
+            'vehicle_type' => 'private',
+            'latitude' => 50.087451,
+            'longitude' => 14.420671,
+            'accuracy' => 10,
+        ])->assertOk()
+            ->assertJsonPath('spots.0.is_occupied', true)
+            ->assertJsonPath('spots.0.is_reserved_service', false);
+    }
+
+    public function test_service_reservation_can_be_toggled_for_first_spot()
+    {
+        $this->bootstrapParkingState();
+
+        $this->postJson('/api/spots/toggle-service-reservation', [
+            'device_id' => $this->deviceA,
+            'name' => 'Jana',
+            'spot_number' => 1,
+        ])->assertOk()->assertJsonPath('spots.0.is_reserved_service', false);
+
+        $this->postJson('/api/spots/toggle-service-reservation', [
+            'device_id' => $this->deviceA,
+            'name' => 'Jana',
+            'spot_number' => 1,
+        ])->assertOk()->assertJsonPath('spots.0.is_reserved_service', true);
+    }
+
+    public function test_recent_events_include_spot_number()
+    {
+        $this->bootstrapParkingState();
+
+        $this->postJson('/api/spots/toggle', $this->togglePayload([
+            'spot_number' => 2,
+            'name' => 'Jana',
+        ]))->assertOk();
+
+        $this->getJson('/api/events?limit=1')
             ->assertOk()
-            ->assertJsonCount(2, 'events')
-            ->assertJsonPath('events.0.user_name', 'Petr')
-            ->assertJsonPath('events.1.user_name', 'Jana');
+            ->assertJsonCount(1, 'events')
+            ->assertJsonPath('events.0.user_name', 'Jana')
+            ->assertJsonPath('events.0.spot_number', 2)
+            ->assertJsonPath('events.0.vehicle_type', 'private');
     }
 }
