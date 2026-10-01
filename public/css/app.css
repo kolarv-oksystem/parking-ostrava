@@ -97,6 +97,32 @@ input {
     touch-action: manipulation;
 }
 
+.checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-height: 44px;
+    color: var(--text);
+    font-size: 0.95rem;
+    cursor: pointer;
+}
+
+.checkbox-row input {
+    width: 22px;
+    height: 22px;
+    min-height: 22px;
+    margin: 0;
+    padding: 0;
+    flex: 0 0 auto;
+    accent-color: var(--primary);
+}
+
+.keep-hint {
+    font-size: 0.85rem;
+    color: var(--muted);
+    line-height: 1.35;
+}
+
 .gps-status {
     font-size: 0.85rem;
     color: var(--muted);
@@ -181,6 +207,17 @@ input {
     background: rgba(234, 179, 8, 0.28);
     border-color: rgba(250, 204, 21, 0.55);
     color: #fef08a;
+}
+
+.spot-mark {
+    font-size: 0.95rem;
+    font-weight: 800;
+    line-height: 1;
+    color: #fde68a;
+}
+
+.spot-mark[hidden] {
+    display: none;
 }
 
 .spot-name {

@@ -285,6 +285,31 @@
       }
     },
     {
+      "name": "Automatické uvolnění míst (CRON GET)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/cron/release-spots?token={{autoReleaseToken}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "api",
+            "cron",
+            "release-spots"
+          ],
+          "query": [
+            {
+              "key": "token",
+              "value": "{{autoReleaseToken}}"
+            }
+          ]
+        },
+        "description": "Volá se z CRONu webhostingu každý den v 19:00. Uvolní obsazená místa kromě služebního vozidla a míst s příznakem skip_auto_release."
+      }
+    },
+    {
       "name": "Clear caches (admin)",
       "request": {
         "method": "POST",
@@ -318,6 +343,10 @@
     {
       "key": "adminToken",
       "value": "change-this-token"
+    },
+    {
+      "key": "autoReleaseToken",
+      "value": "change-this-release-token"
     },
     {
       "key": "manualPassword",

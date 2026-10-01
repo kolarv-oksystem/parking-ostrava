@@ -27,6 +27,7 @@ Tyto kroky proveďte mimo produkční runtime:
    - `PARKING_RESERVED_SERVICE_SPOTS_COUNT`
    - `PARKING_MANUAL_PASSWORD`
    - `PARKING_ADMIN_TOKEN`
+   - `PARKING_AUTO_RELEASE_TOKEN` (dlouhý náhodný řetězec, jiný než admin token)
 
 ## 3) Provozní úkony přes Postman
 
@@ -35,6 +36,23 @@ Postman kolekce: `docs/postman/ParkingBookator.postman_collection.json`
 Používejte hlavně:
 - `Init / reseed (admin)` při změně kapacity nebo resetu hesla ruční úpravy
 - `Toggle spot occupancy` a `Toggle service reservation` pro API testy mapy míst
+
+## Automatické uvolnění míst v 19:00
+
+Hostingový CRON umí volat jen URL metodou GET. Naplánujte každý den v 19:00 (časové pásmo Europe/Prague):
+
+```text
+GET https://parking.example.cz/api/cron/release-spots?token=PARKING_AUTO_RELEASE_TOKEN
+```
+
+Endpoint uvolní všechna obsazená místa kromě:
+
+- služebního vozidla
+- místa obsazeného s volbou „Automaticky neuvolňovat“ (v mapě značené ✱)
+
+Sám nekontroluje hodinu, takže ho lze po výpadku CRON spustit znovu. Neplatný nebo chybějící token vrací 401, nenastavený `PARKING_AUTO_RELEASE_TOKEN` vrací 503.
+
+Nový sloupec `parking_spots.skip_auto_release` přidá migrace `2026_10_01_000001_add_skip_auto_release_to_parking_spots_table`. Na hostingu bez CLI ji spusťte přes `POST /api/admin/database-migrate?token=...`.
 
 ## Bezpečnostní doporučení
 

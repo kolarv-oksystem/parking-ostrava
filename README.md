@@ -14,6 +14,9 @@ Jednoduchá webová aplikace pro sdílenou správu 6 parkovacích míst.
   - ve služební zóně: `vehicle_type: "private"` = obsazení s GPS, rezervace se vypne
   - mimo služební zónu: obsazení vždy s GPS
 - zobrazuje posledních 15 změn (`GET /api/events?limit=15`)
+- v 19:00 CRON webhostingu zavolá `GET /api/cron/release-spots?token=...` a uvolní obsazená místa
+- výjimky z automatického uvolnění: služební vozidlo a místo obsazené se zaškrtnutým „Automaticky neuvolňovat“ (v mapě označené ✱)
+- checkbox se neukládá do prohlížeče a po načtení stránky je vždy vypnutý
 - servisní ruční korekce stavu je dostupná jen s admin tokenem (`POST /api/admin/set-free`)
 - servisní init/reseed endpoint přes token (`POST /api/admin/init-or-reseed`)
 - migrace a údržba DB přes token (`POST /api/admin/database-migrate` a související)
@@ -40,6 +43,7 @@ PARKING_CAPACITY=6
 PARKING_RESERVED_SERVICE_SPOTS_COUNT=1
 PARKING_MANUAL_PASSWORD=change-me
 PARKING_ADMIN_TOKEN=change-this-token
+PARKING_AUTO_RELEASE_TOKEN=change-this-release-token
 PARKING_ALLOWED_LAT=50.087451
 PARKING_ALLOWED_LNG=14.420671
 PARKING_ALLOWED_RADIUS_METERS=250
@@ -70,7 +74,9 @@ PARKING_ALLOWED_RADIUS_METERS=250
 - `POST /api/spots/toggle` body příklad služební zóna bez GPS: `{ "device_id", "name", "spot_number": 1, "vehicle_type": "service" }`
 - `POST /api/spots/toggle` body příklad soukromě ve služební zóně: `{ ..., "spot_number": 1, "vehicle_type": "private", "latitude", "longitude", "accuracy" }`
 - `POST /api/spots/toggle` body ostatní místa: `{ ..., "spot_number": 2, "latitude", "longitude", "accuracy" }`
+- volitelné `skip_auto_release: true` při obsazení místa, které nemá noční úloha smazat
 - `POST /api/spots/toggle-service-reservation` body: `{ "device_id": "...", "name": "...", "spot_number": 1 }` (volitelné, mimo UI)
+- `GET /api/cron/release-spots?token=...` (token z `PARKING_AUTO_RELEASE_TOKEN`, ne admin token)
 - `POST /api/admin/init-or-reseed?token=...`
 - `POST /api/admin/set-free?token=...` body: `{ "free_spots": 12, "password": "..." }`
 - `POST /api/admin/database-migrate?token=...` (JSON `{ "seed": true }` volitelně – spustí i seedery)
