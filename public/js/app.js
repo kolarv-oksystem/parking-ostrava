@@ -3,6 +3,7 @@
     var capacityLabelEl = document.getElementById('capacityLabel');
     var updatedAtEl = document.getElementById('updatedAt');
     var visitorNameInput = document.getElementById('visitorName');
+    var skipAutoReleaseInput = document.getElementById('skipAutoRelease');
     var gpsStatusEl = document.getElementById('gpsStatus');
     var eventsListEl = document.getElementById('eventsList');
     var toastEl = document.getElementById('toast');
@@ -51,6 +52,12 @@
         var savedName = localStorage.getItem(STORAGE_USER_NAME);
         if (savedName) {
             visitorNameInput.value = savedName;
+        }
+    }
+
+    function resetSkipAutoRelease() {
+        if (skipAutoReleaseInput) {
+            skipAutoReleaseInput.checked = false;
         }
     }
 
@@ -134,8 +141,9 @@
             var numberEl = button.querySelector('.spot-number');
             var nameEl = button.querySelector('.spot-name');
             var badgeEl = button.querySelector('.spot-badge');
+            var markEl = button.querySelector('.spot-mark');
 
-            button.classList.remove('is-free', 'is-occupied', 'is-missing', 'spot-btn--service-zone', 'spot-btn--reserve-on');
+            button.classList.remove('is-free', 'is-occupied', 'is-missing', 'spot-btn--service-zone', 'spot-btn--reserve-on', 'spot-btn--keep');
 
             if (!spot) {
                 button.classList.add('is-missing');
@@ -144,6 +152,10 @@
                 nameEl.textContent = 'Mimo kapacitu';
                 badgeEl.textContent = '';
                 badgeEl.style.display = 'none';
+                if (markEl) {
+                    markEl.hidden = true;
+                }
+                button.removeAttribute('title');
                 return;
             }
 
@@ -169,9 +181,24 @@
             if (spot.is_occupied) {
                 button.classList.add('is-occupied');
                 nameEl.textContent = spot.occupied_by_name || 'Obsazeno';
+                if (spot.skip_auto_release) {
+                    button.classList.add('spot-btn--keep');
+                    if (markEl) {
+                        markEl.hidden = false;
+                        markEl.textContent = '✱';
+                    }
+                    button.title = 'Automaticky se neuvolní';
+                } else if (markEl) {
+                    markEl.hidden = true;
+                    button.removeAttribute('title');
+                }
             } else {
                 button.classList.add('is-free');
                 nameEl.textContent = 'Volno';
+                if (markEl) {
+                    markEl.hidden = true;
+                }
+                button.removeAttribute('title');
             }
         });
     }
@@ -218,6 +245,9 @@
         }
         if (eventItem.action === 'spot_leave') {
             return 'Uvolněno (' + vehicle + ')';
+        }
+        if (eventItem.action === 'auto_release') {
+            return 'Automaticky uvolněno (' + vehicle + ')';
         }
         if (eventItem.action === 'service_reserve_on') {
             return 'Zapnuta služební rezervace';
@@ -370,6 +400,10 @@
             payload.vehicle_type = vehicleType;
         }
 
+        if (!isOccupied && skipAutoReleaseInput && skipAutoReleaseInput.checked) {
+            payload.skip_auto_release = true;
+        }
+
         var requestPromise;
         var needsGps = !isOccupied && vehicleType !== 'service';
 
@@ -399,6 +433,7 @@
 
         return requestPromise.then(function (responsePayload) {
             applyState(responsePayload);
+            resetSkipAutoRelease();
             setGpsStatus('ověřeno.', false);
             showToast(isOccupied ? 'Místo uvolněno.' : 'Místo obsazeno.', false);
             return refreshEvents();
@@ -515,6 +550,8 @@
     });
 
     restoreName();
+    resetSkipAutoRelease();
+    window.addEventListener('pageshow', resetSkipAutoRelease);
 
     Promise.all([refreshStatus(), refreshEvents(SHORT_LOG_LIMIT)]).catch(function (error) {
         showToast(error.message, true);

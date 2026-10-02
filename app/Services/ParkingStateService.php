@@ -87,9 +87,10 @@ class ParkingStateService
         ?float $latitude,
         ?float $longitude,
         string $actor = 'public',
-        ?string $vehicleType = null
+        ?string $vehicleType = null,
+        bool $skipAutoRelease = false
     ): array {
-        return DB::transaction(function () use ($deviceId, $userName, $spotNumber, $latitude, $longitude, $actor, $vehicleType) {
+        return DB::transaction(function () use ($deviceId, $userName, $spotNumber, $latitude, $longitude, $actor, $vehicleType, $skipAutoRelease) {
             $state = ParkingState::query()->lockForUpdate()->findOrFail(1);
             $this->ensureSpots((int) $state->capacity_total);
             $oldValue = (int) $state->free_spots;
@@ -115,6 +116,7 @@ class ParkingStateService
                 $spot->occupied_by_name = null;
                 $spot->occupied_by_device_id = null;
                 $spot->occupied_at = null;
+                $spot->skip_auto_release = false;
                 $spot->save();
 
                 $action = 'spot_leave';
@@ -143,6 +145,7 @@ class ParkingStateService
                 $spot->occupied_by_name = $userName;
                 $spot->occupied_by_device_id = $deviceId;
                 $spot->occupied_at = Carbon::now();
+                $spot->skip_auto_release = $skipAutoRelease;
                 $spot->save();
 
                 $action = 'spot_arrive';
@@ -279,6 +282,7 @@ class ParkingStateService
                     $spot->occupied_by_name = null;
                     $spot->occupied_by_device_id = null;
                     $spot->occupied_at = Carbon::now();
+                    $spot->skip_auto_release = false;
                     $spot->save();
                 });
             } elseif ($targetOccupied < $currentOccupied) {
@@ -288,6 +292,7 @@ class ParkingStateService
                     $spot->occupied_by_name = null;
                     $spot->occupied_by_device_id = null;
                     $spot->occupied_at = null;
+                    $spot->skip_auto_release = false;
                     $spot->save();
                 });
             }
@@ -363,6 +368,7 @@ class ParkingStateService
                 $spot->occupied_by_name = null;
                 $spot->occupied_by_device_id = null;
                 $spot->occupied_at = $shouldBeOccupied ? Carbon::now() : null;
+                $spot->skip_auto_release = false;
                 $spot->save();
             });
 
@@ -392,6 +398,110 @@ class ParkingStateService
 
             return $this->statusPayload($state, $updatedSpots);
         });
+    }
+
+    /**
+     * Uvolní obsazená místa, která nemají výjimku.
+     * Výjimky: služební vozidlo a místo označené „Automaticky neuvolňovat“.
+     * Čas spuštění řídí externí CRON (typicky 19:00), endpoint sám hodinu nehlídá.
+     */
+    public function releaseSpotsAutomatically(string $actor = 'auto-release'): array
+    {
+        return DB::transaction(function () use ($actor) {
+            $state = ParkingState::query()->lockForUpdate()->findOrFail(1);
+            $this->ensureSpots((int) $state->capacity_total);
+
+            $spots = ParkingSpot::query()->orderBy('spot_number')->lockForUpdate()->get();
+            $freeBefore = $this->countFreeSpots($spots);
+            $released = [];
+            $kept = [];
+
+            foreach ($spots as $spot) {
+                if (!$spot->is_occupied) {
+                    continue;
+                }
+
+                if ($this->isExemptFromAutoRelease($spot)) {
+                    $kept[] = (int) $spot->spot_number;
+                    continue;
+                }
+
+                $released[] = [
+                    'spot_number' => (int) $spot->spot_number,
+                    'device_id' => $spot->occupied_by_device_id,
+                    'user_name' => $spot->occupied_by_name,
+                    'is_reserved_service' => (bool) $spot->is_reserved_service,
+                    'vehicle_type' => (bool) $spot->is_reserved_service ? 'service' : 'private',
+                ];
+
+                $spot->is_occupied = false;
+                $spot->occupied_by_name = null;
+                $spot->occupied_by_device_id = null;
+                $spot->occupied_at = null;
+                $spot->skip_auto_release = false;
+                $spot->save();
+            }
+
+            $updatedSpots = ParkingSpot::query()->orderBy('spot_number')->get();
+
+            if ($released !== []) {
+                $deviceIds = [];
+                foreach ($released as $row) {
+                    if (is_string($row['device_id']) && $row['device_id'] !== '') {
+                        $deviceIds[$row['device_id']] = $row['device_id'];
+                    }
+                }
+
+                foreach ($deviceIds as $deviceId) {
+                    DevicePresence::query()->updateOrCreate(
+                        ['device_id' => $deviceId],
+                        [
+                            'is_parked' => $updatedSpots->contains(function (ParkingSpot $row) use ($deviceId) {
+                                return $row->is_occupied && $row->occupied_by_device_id === $deviceId;
+                            }),
+                            'blocks_untracked_leave_until_arrive' => false,
+                            'last_action_at' => Carbon::now(),
+                        ]
+                    );
+                }
+
+                $freeSpots = $this->countFreeSpots($updatedSpots);
+                $state->free_spots = $freeSpots;
+                $state->updated_by = $actor;
+                $state->version = $state->version + 1;
+                $state->save();
+
+                $runningFree = $freeBefore;
+                foreach ($released as $row) {
+                    $runningFree++;
+                    $this->logEvent(
+                        'auto_release',
+                        1,
+                        $runningFree - 1,
+                        $runningFree,
+                        $actor,
+                        $row['device_id'],
+                        $row['user_name'],
+                        $row['spot_number'],
+                        $row['is_reserved_service'],
+                        $row['vehicle_type']
+                    );
+                }
+            }
+
+            $payload = $this->statusPayload($state, $updatedSpots);
+            $payload['released_spots'] = array_map(function (array $row) {
+                return $row['spot_number'];
+            }, $released);
+            $payload['kept_spots'] = $kept;
+
+            return $payload;
+        });
+    }
+
+    private function isExemptFromAutoRelease(ParkingSpot $spot): bool
+    {
+        return (bool) $spot->skip_auto_release || (bool) $spot->is_reserved_service;
     }
 
     private function ensureState(): ParkingState
@@ -441,6 +551,7 @@ class ParkingStateService
                     'occupied_by_device_id' => null,
                     'occupied_at' => null,
                     'is_reserved_service' => $spotNumber <= $reservedCount,
+                    'skip_auto_release' => false,
                 ]);
                 $existing->put($spotNumber, $spot);
                 continue;
@@ -589,6 +700,7 @@ class ParkingStateService
                     'is_occupied' => (bool) $spot->is_occupied,
                     'occupied_by_name' => $spot->occupied_by_name,
                     'is_reserved_service' => (bool) $spot->is_reserved_service,
+                    'skip_auto_release' => (bool) $spot->skip_auto_release,
                     'occupied_at' => $spot->occupied_at ? $spot->occupied_at->toIso8601String() : null,
                 ];
             })->values()->all(),

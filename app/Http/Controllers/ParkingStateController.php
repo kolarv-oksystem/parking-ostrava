@@ -44,7 +44,8 @@ class ParkingStateController extends Controller
                 $request->filled('latitude') ? (float) $request->input('latitude') : null,
                 $request->filled('longitude') ? (float) $request->input('longitude') : null,
                 'public',
-                is_string($vehicleType) ? $vehicleType : null
+                is_string($vehicleType) ? $vehicleType : null,
+                $request->boolean('skip_auto_release')
             );
         });
     }
@@ -58,6 +59,13 @@ class ParkingStateController extends Controller
                 (int) $request->input('spot_number'),
                 'public'
             );
+        });
+    }
+
+    public function autoRelease(): JsonResponse
+    {
+        return $this->runAction(function () {
+            return $this->parkingStateService->releaseSpotsAutomatically();
         });
     }
 

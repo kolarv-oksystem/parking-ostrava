@@ -20,6 +20,11 @@ Route::get('/events', [ParkingStateController::class, 'events']);
 Route::post('/spots/toggle', [ParkingStateController::class, 'toggleSpot']);
 Route::post('/spots/toggle-service-reservation', [ParkingStateController::class, 'toggleServiceReservation']);
 
+Route::middleware('auto.release.token')->get(
+    '/cron/release-spots',
+    [ParkingStateController::class, 'autoRelease']
+);
+
 Route::middleware('admin.token')->group(function () {
     Route::post('/admin/init-or-reseed', [ParkingStateController::class, 'initOrReseed']);
     Route::post('/admin/set-free', [ParkingStateController::class, 'setFree']);

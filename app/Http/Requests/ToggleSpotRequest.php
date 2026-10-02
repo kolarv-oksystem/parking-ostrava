@@ -28,6 +28,7 @@ class ToggleSpotRequest extends FormRequest
             'name' => ['required', 'string', 'min:2', 'max:100'],
             'spot_number' => ['required', 'integer', 'min:1', 'max:5000'],
             'vehicle_type' => ['nullable', 'string', 'in:service,private'],
+            'skip_auto_release' => ['sometimes', 'boolean'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
             'accuracy' => ['sometimes', 'numeric', 'min:0'],

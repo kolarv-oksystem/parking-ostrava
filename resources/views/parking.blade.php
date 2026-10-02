@@ -40,6 +40,16 @@
                     required
                     placeholder="Např. Jan Novák"
                 >
+                <label class="checkbox-row" for="skipAutoRelease">
+                    <input
+                        type="checkbox"
+                        id="skipAutoRelease"
+                        name="skipAutoRelease"
+                        autocomplete="off"
+                    >
+                    <span>Automaticky neuvolňovat</span>
+                </label>
+                <small class="keep-hint">Zaškrtněte před obsazením, pokud má auto zůstat i po 19:00. Volba se neukládá a po načtení stránky je vždy vypnutá. Služební vozidlo se neuvolňuje samo.</small>
                 <small class="gps-status" id="gpsStatus">GPS: čeká na ověření.</small>
             </div>
 
@@ -47,31 +57,37 @@
                 <button type="button" class="spot-btn" data-spot-number="1">
                     <span class="spot-number">Místo 1</span>
                     <span class="spot-badge" aria-hidden="true"></span>
+                    <span class="spot-mark" hidden>✱</span>
                     <span class="spot-name">Volno</span>
                 </button>
                 <button type="button" class="spot-btn" data-spot-number="2">
                     <span class="spot-number">Místo 2</span>
                     <span class="spot-badge" aria-hidden="true"></span>
+                    <span class="spot-mark" hidden>✱</span>
                     <span class="spot-name">Volno</span>
                 </button>
                 <button type="button" class="spot-btn" data-spot-number="3">
                     <span class="spot-number">Místo 3</span>
                     <span class="spot-badge" aria-hidden="true"></span>
+                    <span class="spot-mark" hidden>✱</span>
                     <span class="spot-name">Volno</span>
                 </button>
                 <button type="button" class="spot-btn" data-spot-number="4">
                     <span class="spot-number">Místo 4</span>
                     <span class="spot-badge" aria-hidden="true"></span>
+                    <span class="spot-mark" hidden>✱</span>
                     <span class="spot-name">Volno</span>
                 </button>
                 <button type="button" class="spot-btn" data-spot-number="5">
                     <span class="spot-number">Místo 5</span>
                     <span class="spot-badge" aria-hidden="true"></span>
+                    <span class="spot-mark" hidden>✱</span>
                     <span class="spot-name">Volno</span>
                 </button>
                 <button type="button" class="spot-btn" data-spot-number="6">
                     <span class="spot-number">Místo 6</span>
                     <span class="spot-badge" aria-hidden="true"></span>
+                    <span class="spot-mark" hidden>✱</span>
                     <span class="spot-name">Volno</span>
                 </button>
             </div>

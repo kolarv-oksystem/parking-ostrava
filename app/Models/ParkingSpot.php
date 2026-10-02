@@ -16,11 +16,13 @@ class ParkingSpot extends Model
         'occupied_by_device_id',
         'occupied_at',
         'is_reserved_service',
+        'skip_auto_release',
     ];
 
     protected $casts = [
         'is_occupied' => 'boolean',
         'is_reserved_service' => 'boolean',
+        'skip_auto_release' => 'boolean',
         'occupied_at' => 'datetime',
     ];
 }
